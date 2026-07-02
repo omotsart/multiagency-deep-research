@@ -5,7 +5,6 @@
 наличие константы MAX_TURNS. Runner.run замокан — сети/LLM нет (D-06).
 """
 
-from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -16,21 +15,12 @@ from guardrails import (
     MAX_TURNS,
     ResearchContext,
 )
-from planner_agent import WebSearchItem, WebSearchPlan
+from _mocks import make_plan, search_run
 
 
-def _plan(n: int) -> WebSearchPlan:
-    return WebSearchPlan(
-        searches=[WebSearchItem(reason=f"r{i}", query=f"q{i}") for i in range(n)]
-    )
-
-
-def _fake_run():
-    async def fake_run(agent, input, *args, **kwargs):
-        term = input.split("Search term: ", 1)[1].split("\n", 1)[0]
-        return SimpleNamespace(final_output=f"summary for {term}")
-
-    return fake_run
+def _plan(n: int) -> "search_agent.WebSearchPlan":
+    # Счётный билдер поверх общего make_plan: запросы q0..q(n-1).
+    return make_plan(*[f"q{i}" for i in range(n)])
 
 
 # --- ResearchContext: счётчик и остаток ---------------------------------------
@@ -71,7 +61,7 @@ def test_spend_negative_raises():
 @pytest.mark.asyncio
 async def test_searches_run_and_debit_budget_below_limit():
     ctx = ResearchContext(search_budget=5)
-    with patch.object(search_agent.Runner, "run", side_effect=_fake_run()) as mock_run:
+    with patch.object(search_agent.Runner, "run", side_effect=search_run()) as mock_run:
         outcome = await search_agent.run_searches_with_budget(ctx, _plan(3))
 
     assert not outcome.refused
@@ -85,7 +75,7 @@ async def test_searches_run_and_debit_budget_below_limit():
 async def test_tool_refuses_when_budget_exhausted():
     ctx = ResearchContext(search_budget=2)
     ctx.spend(2)  # бюджет исчерпан
-    with patch.object(search_agent.Runner, "run", side_effect=_fake_run()) as mock_run:
+    with patch.object(search_agent.Runner, "run", side_effect=search_run()) as mock_run:
         outcome = await search_agent.run_searches_with_budget(ctx, _plan(3))
 
     assert outcome.refused
@@ -99,7 +89,7 @@ async def test_tool_refuses_when_budget_exhausted():
 async def test_boundary_exactly_at_limit_then_next_call_refused():
     # Ровно на лимите: первый вызов расходует остаток целиком, второй — отказ.
     ctx = ResearchContext(search_budget=3)
-    with patch.object(search_agent.Runner, "run", side_effect=_fake_run()) as mock_run:
+    with patch.object(search_agent.Runner, "run", side_effect=search_run()) as mock_run:
         first = await search_agent.run_searches_with_budget(ctx, _plan(3))
         assert not first.refused
         assert len(first.summaries) == 3
@@ -116,7 +106,7 @@ async def test_boundary_exactly_at_limit_then_next_call_refused():
 async def test_batch_larger_than_remaining_is_capped():
     ctx = ResearchContext(search_budget=5)
     ctx.spend(3)  # остаток 2
-    with patch.object(search_agent.Runner, "run", side_effect=_fake_run()) as mock_run:
+    with patch.object(search_agent.Runner, "run", side_effect=search_run()) as mock_run:
         outcome = await search_agent.run_searches_with_budget(ctx, _plan(4))
 
     assert not outcome.refused
@@ -132,13 +122,7 @@ async def test_failed_search_still_consumes_budget():
     # Упавший поиск тоже тратит попытку: счётчик по числу запрошенных, не успешных.
     ctx = ResearchContext(search_budget=5)
 
-    async def fake_run(agent, input, *args, **kwargs):
-        term = input.split("Search term: ", 1)[1].split("\n", 1)[0]
-        if term == "q1":
-            raise RuntimeError("boom")
-        return SimpleNamespace(final_output=f"summary for {term}")
-
-    with patch.object(search_agent.Runner, "run", side_effect=fake_run):
+    with patch.object(search_agent.Runner, "run", side_effect=search_run(fail_on=["q1"])):
         outcome = await search_agent.run_searches_with_budget(ctx, _plan(3))
 
     assert len(outcome.summaries) == 2       # одна сводка потеряна
