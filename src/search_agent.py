@@ -1,8 +1,17 @@
 import asyncio
+from dataclasses import dataclass, field
 
-from agents import Agent, WebSearchTool, ModelSettings, Runner, function_tool
+from agents import (
+    Agent,
+    WebSearchTool,
+    ModelSettings,
+    Runner,
+    RunContextWrapper,
+    function_tool,
+)
 
 from planner_agent import WebSearchItem, WebSearchPlan
+from guardrails import ResearchContext
 
 INSTRUCTIONS = (
     "You are a research assistant. Given a search term, you search the web for that term and "
@@ -62,11 +71,85 @@ async def perform_parallel_searches(plan: WebSearchPlan) -> list[str]:
     return results
 
 
-@function_tool
-async def run_parallel_searches(plan: WebSearchPlan) -> list[str]:
-    """Run all web searches from a research plan in parallel and return their
-    summaries. Input: a WebSearchPlan (list of searches). Returns a list of
-    concise text summaries — one per search that succeeded; failed searches are
-    skipped, so the batch never fails as a whole.
+# --- Предохранитель: бюджет поисков (под-gate 2d, D-03) ------------------------
+#
+# Бюджет живёт в ResearchContext и передаётся менеджеру через RunContextWrapper
+# (на Gate 3 — Runner.run(manager, ..., context=ResearchContext())). Поисковый
+# инструмент читает остаток и списывает израсходованное. Отказ при исчерпании —
+# КОНТРОЛИРУЕМЫЙ: не исключение (не роняет пайплайн), а внятный сигнал, который
+# менеджер видит как результат инструмента и может учесть.
+#
+# Бюджет считается по ОТДЕЛЬНЫМ поискам (см. guardrails.py). Пачка больше остатка
+# → выполняем столько, сколько влезает, лишнее отбрасываем с пометкой.
+
+
+@dataclass
+class SearchOutcome:
+    """Результат поискового инструмента с учётом бюджета.
+
+    `refused=True` и пустой `summaries` — бюджет был исчерпан ДО вызова, поиск не
+    выполнялся. `message` — человекочитаемый сигнал для менеджера (в т.ч. когда
+    часть пачки отброшена по бюджету).
     """
-    return await perform_parallel_searches(plan)
+
+    summaries: list[str] = field(default_factory=list)
+    refused: bool = False
+    message: str = ""
+
+
+async def run_searches_with_budget(
+    ctx: ResearchContext, plan: WebSearchPlan
+) -> SearchOutcome:
+    """Выполнить поиски плана в рамках бюджета `ctx` и списать израсходованное.
+
+    Чистая (без RunContextWrapper) — ядро предохранителя, удобно тестировать.
+    - остаток 0 → контролируемый отказ, поиск НЕ выполняется, счётчик не меняется;
+    - пачка больше остатка → выполняется первые `remaining`, лишнее отброшено;
+    - списываем по числу ПОПЫТОК (упавший поиск тоже потратил бюджет).
+    """
+    requested = len(plan.searches)
+
+    if ctx.is_exhausted:
+        return SearchOutcome(
+            refused=True,
+            message=(
+                f"SEARCH_BUDGET_EXHAUSTED: бюджет поисков исчерпан "
+                f"(лимит {ctx.search_budget}, использовано {ctx.searches_used}). "
+                "Новые поиски не выполнены — работай с уже собранными результатами."
+            ),
+        )
+
+    remaining = ctx.searches_remaining
+    allowed_items = plan.searches[:remaining]
+    dropped = requested - len(allowed_items)
+
+    # Списываем по числу попыток сразу — даже если часть поисков упадёт внутри.
+    ctx.spend(len(allowed_items))
+    summaries = await perform_parallel_searches(WebSearchPlan(searches=allowed_items))
+
+    if dropped > 0:
+        message = (
+            f"SEARCH_BUDGET_PARTIAL: выполнено {len(allowed_items)} из {requested} "
+            f"запросов; {dropped} отброшено из-за лимита "
+            f"(лимит {ctx.search_budget}, использовано {ctx.searches_used})."
+        )
+    else:
+        message = ""
+    return SearchOutcome(summaries=summaries, refused=False, message=message)
+
+
+@function_tool
+async def run_parallel_searches(
+    wrapper: RunContextWrapper[ResearchContext], plan: WebSearchPlan
+) -> str:
+    """Run web searches from a research plan in parallel, within the run's search
+    budget, and return their summaries. Input: a WebSearchPlan (list of searches).
+    Returns concise text summaries — one per successful search; failed searches
+    are skipped so the batch never fails as a whole. If the search budget is
+    exhausted, no searches are run and a clear budget message is returned instead.
+    """
+    outcome = await run_searches_with_budget(wrapper.context, plan)
+    if outcome.refused:
+        return outcome.message
+    body = "\n\n".join(outcome.summaries) if outcome.summaries else "(no results)"
+    return f"{outcome.message}\n\n{body}".strip() if outcome.message else body
