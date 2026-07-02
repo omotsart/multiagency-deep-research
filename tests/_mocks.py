@@ -40,6 +40,7 @@ from openai.types.responses import (
 
 from planner_agent import WebSearchItem, WebSearchPlan
 from writer_agent import ReportData
+from evaluator_agent import EvaluationFeedback
 
 
 # ── Строители канонических выходов ────────────────────────────────────────────
@@ -65,6 +66,26 @@ def make_report(
         follow_up_questions=follow_up_questions
         if follow_up_questions is not None
         else ["Что исследовать дальше?"],
+    )
+
+
+def make_evaluation(
+    score: int = 8,
+    passed: bool = True,
+    feedback: str = "Отчёт покрывает бриф; править нечего.",
+    missing_topics: list[str] | None = None,
+) -> EvaluationFeedback:
+    """Канонический EvaluationFeedback (структура-контракт, не суждение).
+
+    Дефолт — проходной (score >= 7, passed): happy-path evaluator-петли завершается
+    на первой оценке без доработок (D-06 — проверяем сборку трубы с оценщиком, не
+    качество и не сами решения LLM, RULES §4).
+    """
+    return EvaluationFeedback(
+        score=score,
+        passed=passed,
+        feedback=feedback,
+        missing_topics=missing_topics if missing_topics is not None else [],
     )
 
 
@@ -207,9 +228,16 @@ class MockAgentRunner:
     """Мок-слой `Runner.run` для E2E: канон по имени агента + запись вызовов.
 
     Раздаёт: PlannerAgent → WebSearchPlan, Search agent → 'summary for <term>',
-    WriterAgent → ReportData. Менеджера (ManagerAgent) прогоняет НАСТОЯЩИЙ Runner
-    со сценарной моделью (ScenarioManagerModel) — так менеджер реально дёргает
-    свои инструменты, а суб-агенты возвращаются в этот же диспетчер.
+    WriterAgent → ReportData, EvaluatorAgent → EvaluationFeedback (Зона 3, 4c).
+    Менеджера (ManagerAgent) прогоняет НАСТОЯЩИЙ Runner со сценарной моделью
+    (ScenarioManagerModel) — так менеджер реально дёргает свои инструменты, а
+    суб-агенты возвращаются в этот же диспетчер. Оценщик (EvaluatorAgent) зовёт
+    evaluator-петля напрямую (не .as_tool()) — отдаём канон по имени, как остальным.
+
+    ScenarioManagerModel создаётся ЗАНОВО на каждый диспатч ManagerAgent (свежий
+    _step=0), поэтому несколько прогонов run_research подряд (доработки evaluator-
+    петли) каждый проигрывают полный цикл ходов — состояние между прогонами не
+    протекает (нюанс переиспользования снят конструкцией, а не заглушкой).
 
     Сигнатура dispatch принимает `starting_agent`/`input`: прямой запуск (менеджер,
     поиск) зовёт Runner.run позиционно, а `.as_tool()`-обёртки — по kwargs
@@ -218,15 +246,18 @@ class MockAgentRunner:
 
     plan: WebSearchPlan | None = None
     report: ReportData | None = None
+    evaluation: EvaluationFeedback | None = None
     search_fail_on: set = field(default_factory=set)
     calls: list[str] = field(default_factory=list)
     _original: object = None
 
-    def configure(self, *, plan=None, report=None, search_fail_on=()):
+    def configure(self, *, plan=None, report=None, evaluation=None, search_fail_on=()):
         if plan is not None:
             self.plan = plan
         if report is not None:
             self.report = report
+        if evaluation is not None:
+            self.evaluation = evaluation
         self.search_fail_on = set(search_fail_on)
         return self
 
@@ -254,6 +285,10 @@ class MockAgentRunner:
             return _result(f"summary for {term}", agent)
         if name == "WriterAgent":
             return _result(self.report if self.report is not None else make_report(), agent)
+        if name == "EvaluatorAgent":
+            # Зона 3: оценщик зовётся напрямую evaluator-петлёй, потребляется через
+            # final_output_as(EvaluationFeedback). Отдаём канон по имени агента.
+            return _result(self.evaluation if self.evaluation is not None else make_evaluation(), agent)
         # Иной неизвестный агент — к настоящему Runner (задел).
         return await self._original(starting_agent, input, *args, **kwargs)
 
