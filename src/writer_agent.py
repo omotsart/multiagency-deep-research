@@ -25,3 +25,16 @@ writer_agent = Agent(
     model="gpt-4o-mini",
     output_type=ReportData,
 )
+
+# Обёртка писателя как инструмент менеджера (Зона 2, agents-as-tools — D-01).
+# Один синтез-вызов, параллелить нечего → .as_tool(), как в 2a (не function_tool).
+# Сам агент выше не меняется: те же инструкции, схема ReportData, модель.
+# tool_description увидит менеджер на Gate 3 при выборе инструмента.
+write_report_tool = writer_agent.as_tool(
+    tool_name="write_report",
+    tool_description=(
+        "Synthesize the final research report. Input: the research brief plus the "
+        "collected search summaries, as plain text. Returns a ReportData — a short "
+        "summary, the full markdown report, and suggested follow-up questions."
+    ),
+)
