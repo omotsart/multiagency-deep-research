@@ -21,7 +21,7 @@ from agents import Agent
 
 from planner_agent import plan_searches_tool
 from search_agent import run_parallel_searches
-from writer_agent import write_report_tool
+from writer_agent import write_report_tool, ReportData
 from guardrails import DEFAULT_SEARCH_BUDGET
 
 # Промпт менеджера. Явно задаёт: бюджет поисков, реакцию на бюджетные сигналы
@@ -67,6 +67,12 @@ return."""
 manager_agent = Agent(
     name="ManagerAgent",
     instructions=INSTRUCTIONS,
+    # Финал прогона — структурированный ReportData: менеджер сам эмитит итоговый
+    # отчёт, SDK валидирует его финальное сообщение в эту схему (B1, принято
+    # владельцем на 3c). Менеджер владеет финальным ответом — это буквально D-01.
+    # Вариант B2 (tool_use_behavior=StopAtTools(["write_report"])) отклонён: .as_tool()
+    # стрингифицирует вывод писателя, StopAtTools захватил бы строку, а не ReportData.
+    output_type=ReportData,
     # Более способная модель, чем gpt-4o-mini: менеджер принимает решения
     # (сколько искать, нужна ли вторая волна, когда останавливаться), а поисковые
     # сводки остаются на gpt-4o-mini. gpt-4o — тот же провайдер/семейство, что и

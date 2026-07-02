@@ -18,7 +18,6 @@ from writer_agent import ReportData
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="оркестратор (manager_agent) появится на Gate 3", strict=True)
 async def test_e2e_happy_path_brief_to_report(mock_agent_runner):
     # 1. Бриф (Зона 1, детерминированная склейка — уже готова на Gate 1).
     brief = build_brief(
