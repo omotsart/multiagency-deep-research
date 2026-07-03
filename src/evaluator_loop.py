@@ -1,41 +1,75 @@
-"""Evaluator-Optimizer петля — Зона 3, контроль качества (Gate 4, под-шаг 4b).
+"""Evaluator-Optimizer петля — Зона 3, контроль качества.
 
 Петля — детерминированный `while` в ПИТОНЕ (D-02), НЕ инструмент автономного
 менеджера. Гарантия лимита итераций держится КОДОМ, а не решением LLM: менеджер
 мог бы «забыть» счётчик, код — нет.
 
-Цикл:
-  1. Получить отчёт от Зоны 2 (`run_research(brief)` — менеджер владеет процессом).
-  2. Оценить отчёт против брифа через `evaluator_agent` (→ EvaluationFeedback).
-  3. Пока порог не взят и не исчерпан лимит доработок — скормить feedback и
-     missing_topics обратно в доработку (пере-прогон Зоны 2 с обогащённым брифом).
-  4. Graceful exit: наружу идёт ЛУЧШАЯ по score версия, не обязательно последняя.
+С под-шага 5-pre-c петля отдаёт прогресс наружу КАНАЛОМ-ГЕНЕРАТОРОМ (D-13.2), а не
+колбэком: `research_with_evaluation` — чистый `async` генератор `ProgressEvent`.
+Живой стриминг нужен UI (Gate 5, «накопительный лог + счётчики»), а Gradio стримит
+именно через генераторы. Прежний `on_iteration`-колбэк удалён — его роль берёт поток
+событий.
+
+Контракт потока (D-13):
+  * стадии: `research_started` → `draft_ready` → `evaluation`
+    (→ `revision_started` → `draft_ready` → `evaluation`)* → терминал;
+  * ПРОМЕЖУТОЧНЫЕ события `report` НЕ несут (`report=None`);
+  * терминал ВСЕГДА ровно один и взаимоисключающий (D-13.2/D-13.3):
+      - `final` — несёт НЕПУСТОЙ `report: ReportData` (не None; за это цепляется
+        E2E `isinstance`);
+      - `failed` — `report=None`, человекочитаемое сообщение в `payload["message"]`.
+
+Бюджет — per-loop (D-13.1): ОДИН `ResearchContext` создаётся на весь запрос и
+передаётся в КАЖДЫЙ `run_research(..., context=ctx)` — и в первый прогон, и в каждую
+доработку. Бюджет поисков честно живёт на весь запрос (предохранитель D-03 не врёт),
+а `ctx.searches_used` доступен в `payload` событий — задел под счётчик поисков в UI.
 
 Пороговое решение — в коде (D-02): `passed = score >= SCORE_THRESHOLD`. Поле
 `EvaluationFeedback.passed` от оценщика остаётся советом (для UI/прозрачности), но
 управляющий инвариант петли — код-порог по score, а не самооценка LLM. Так критерий
-Gate 4 «порог score >= 7 (не 10)» энфорсится детерминированно.
+«порог score >= 7 (не 10)» энфорсится детерминированно.
 
-Границы 4b (СПЕЦИАЛЬНО не здесь): расширение E2E через оценщик — 4c; финальный
-handoff на finalizer после петли (D-09/D-12) — 4d, решение владельца; подключение
-к UI — Gate 5. Здесь только петля и её юнит-тесты.
+Дренер `run_loop_to_report` (5-pre-c) живёт ЗДЕСЬ же, рядом с генератором и его
+контрактом стадий: он — каноническая свёртка ЭТОГО потока к отчёту (знает про
+терминалы `final`/`failed`), а не логика петли и не забота потребителя. Держать
+знание «как достать report из потока» в ОДНОЙ явной точке (её зовут finalizer, E2E,
+UI), а не размазывать по потребителям. Отдельный модуль был бы слоем без
+необходимости (RULES §6) ради одной функции над локальным контрактом событий.
+
+Границы (СПЕЦИАЛЬНО не здесь): E2E под поток — 5-pre-d; вёрстка экранов — Gate 5.
 """
 
-from typing import Callable, Optional
+from dataclasses import dataclass
+from typing import AsyncIterator, Optional
 
 from agents import Runner
 
 from run_research import run_research
 from evaluator_agent import evaluator_agent, EvaluationFeedback
+from guardrails import ResearchContext
 from writer_agent import ReportData
 
 # Порог качества и потолок доработок — критерии Gate 4, живут в коде (D-02).
 SCORE_THRESHOLD = 7          # score >= 7 считается «достаточно хорошо» (шкала до 10).
 MAX_ROUNDS = 2               # не больше двух доработок сверх первого прогона.
 
-# Колбэк прогресса: петля эмитит наружу score и feedback КАЖДОЙ итерации (задел под
-# UI, Gate 5). Необязателен — без него петля работает как чистая функция.
-ProgressCallback = Callable[[int, str], None]
+
+@dataclass(frozen=True)
+class ProgressEvent:
+    """Событие прогресса петли, идущее наружу потоком (D-13.2).
+
+    stage — стадия конвейера: `research_started` / `draft_ready` / `evaluation` /
+      `revision_started` / `final` / `failed`.
+    payload — произвольные данные стадии (round, score, feedback, searches_used, …)
+      для лога и счётчиков UI.
+    report — НЕПУСТОЙ ReportData ТОЛЬКО у терминала `final`; на всех остальных
+      событиях (включая `failed`) — None. Инвариант: `report is not None` ⇔
+      `stage == "final"`.
+    """
+
+    stage: str
+    payload: dict
+    report: Optional[ReportData] = None
 
 
 def _evaluation_input(brief: str, report: ReportData) -> str:
@@ -72,43 +106,106 @@ async def _evaluate(brief: str, report: ReportData) -> EvaluationFeedback:
     return result.final_output_as(EvaluationFeedback)
 
 
-def _emit(on_iteration: Optional[ProgressCallback], evaluation: EvaluationFeedback) -> None:
-    """Отдать наружу score и feedback текущей итерации (задел под UI)."""
-    if on_iteration is not None:
-        on_iteration(evaluation.score, evaluation.feedback)
+def _evaluation_event(
+    round_n: int, evaluation: EvaluationFeedback, ctx: ResearchContext
+) -> ProgressEvent:
+    """Событие оценки текущей итерации (наблюдаемость каждой итерации, задел под UI)."""
+    return ProgressEvent(
+        stage="evaluation",
+        payload={
+            "round": round_n,
+            "score": evaluation.score,
+            "feedback": evaluation.feedback,
+            "missing_topics": list(evaluation.missing_topics),
+            "searches_used": ctx.searches_used,
+        },
+    )
 
 
-async def research_with_evaluation(
-    brief: str,
-    on_iteration: Optional[ProgressCallback] = None,
-) -> ReportData:
-    """Исследовать бриф с контролем качества и вернуть ЛУЧШИЙ по score отчёт.
+async def research_with_evaluation(brief: str) -> AsyncIterator[ProgressEvent]:
+    """Исследовать бриф с контролем качества, отдавая прогресс потоком событий.
 
     Зона 2 (менеджер) готовит отчёт; Зона 3 (эта петля) оценивает и, пока порог не
-    взят и лимит доработок не исчерпан, гоняет доработки. Возвращается лучшая по
-    score версия (graceful exit — не обязательно последняя).
+    взят и лимит доработок не исчерпан, гоняет доработки. Наружу идёт поток
+    `ProgressEvent` (D-13.2), ВСЕГДА завершающийся ровно одним терминалом:
+      * `final` с ЛУЧШИМ по score отчётом (graceful exit — не обязательно последним);
+      * `failed`, если прогон упал и ни одной оценённой версии ещё нет (D-13.3).
 
-    on_iteration(score, feedback) — необязательный колбэк, вызывается на каждой
-    оценке (задел под UI, Gate 5).
+    Бюджет поисков — per-loop (D-13.1): ОДИН `ResearchContext` на весь запрос,
+    передаётся в каждый `run_research(..., context=ctx)` (и первый, и доработки).
     """
-    report = await run_research(brief)
-    evaluation = await _evaluate(brief, report)
-    _emit(on_iteration, evaluation)
+    ctx = ResearchContext()          # ОДИН контекст на весь запрос (per-loop, D-13.1).
+    best_report: Optional[ReportData] = None   # лучшая по score версия (graceful exit).
+    best_score: Optional[int] = None
 
-    # Лучшая версия по score — кандидат на выдачу с самого начала (graceful exit).
-    best_report, best_score = report, evaluation.score
-    passed = evaluation.score >= SCORE_THRESHOLD
+    try:
+        yield ProgressEvent("research_started", {"round": 0})
+        report = await run_research(brief, context=ctx)          # первый прогон — тот же ctx.
+        yield ProgressEvent("draft_ready", {"round": 0, "searches_used": ctx.searches_used})
 
-    rounds = 0
-    while not passed and rounds < MAX_ROUNDS:
-        rounds += 1
-        report = await run_research(_revision_brief(brief, evaluation))
         evaluation = await _evaluate(brief, report)
-        _emit(on_iteration, evaluation)
-
-        # Строго лучше — тогда обновляем; ничьи оставляют раннюю (стабильный выбор).
-        if evaluation.score > best_score:
-            best_report, best_score = report, evaluation.score
+        yield _evaluation_event(0, evaluation, ctx)
+        best_report, best_score = report, evaluation.score
         passed = evaluation.score >= SCORE_THRESHOLD
 
-    return best_report
+        rounds = 0
+        while not passed and rounds < MAX_ROUNDS:
+            rounds += 1
+            yield ProgressEvent("revision_started", {"round": rounds})
+            # Доработка получает ТОТ ЖЕ ctx (per-loop, D-13.1) — не свежий.
+            report = await run_research(_revision_brief(brief, evaluation), context=ctx)
+            yield ProgressEvent(
+                "draft_ready", {"round": rounds, "searches_used": ctx.searches_used}
+            )
+
+            evaluation = await _evaluate(brief, report)
+            yield _evaluation_event(rounds, evaluation, ctx)
+
+            # Строго лучше — обновляем; ничьи оставляют раннюю (стабильный выбор, тай-брейк `>`).
+            if evaluation.score > best_score:
+                best_report, best_score = report, evaluation.score
+            passed = evaluation.score >= SCORE_THRESHOLD
+    except Exception as exc:  # noqa: BLE001 — падение прогона (MaxTurnsExceeded/сеть/API), D-13.3.
+        if best_report is not None:
+            # Есть оценённая версия → graceful exit ЛУЧШЕЙ по score (та же ветка, что лимит).
+            yield ProgressEvent(
+                "final",
+                {"score": best_score, "searches_used": ctx.searches_used, "graceful": True},
+                best_report,
+            )
+        else:
+            # Ни одной оценённой версии → альтернативный терминал `failed` (report=None).
+            yield ProgressEvent(
+                "failed",
+                {"message": f"Research run failed before any report was produced: {exc}"},
+            )
+        return
+
+    # Нормальный терминал: ровно один `final` с непустым отчётом (best-by-score).
+    yield ProgressEvent(
+        "final", {"score": best_score, "searches_used": ctx.searches_used}, best_report
+    )
+
+
+async def run_loop_to_report(brief: str) -> ReportData:
+    """Каноническая свёртка потока петли к готовому отчёту (дренер, 5-pre-c).
+
+    Гоняет `research_with_evaluation` до терминала:
+      * `final` → возвращает НЕПУСТОЙ `report` (ReportData);
+      * `failed` → поднимает исключение с сообщением из `payload` (НЕ возвращает None,
+        D-13.3 на границе дренера — потребитель получает либо отчёт, либо внятную ошибку).
+
+    Единственная точка, знающая «как достать report из потока»: её зовут finalizer
+    (стык D-09), E2E (5-pre-d) и UI (Gate 5) — знание не размазано по потребителям.
+    """
+    async for event in research_with_evaluation(brief):
+        if event.stage == "final":
+            # Флаг payload["graceful"] игнорируется НАМЕРЕННО (D-13.2, уточнение
+            # семантики терминалов): любой `final` = успех, годный report есть report.
+            # Различение нормального/graceful-финала — забота потребителя, читающего
+            # поток напрямую (UI), а не дренера.
+            return event.report
+        if event.stage == "failed":
+            raise RuntimeError(event.payload.get("message", "research run failed"))
+    # Контракт гарантирует ровно один терминал; сюда попасть нельзя — защита от тихого None.
+    raise RuntimeError("evaluator loop ended without a terminal event")

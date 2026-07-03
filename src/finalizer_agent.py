@@ -32,7 +32,7 @@ finalizer_gateway c handoffs=[handoff(finalizer_agent)]: research_and_finalize()
 from pydantic import BaseModel, Field
 from agents import Agent, Runner, handoff
 
-from evaluator_loop import research_with_evaluation
+from evaluator_loop import run_loop_to_report
 
 
 class FinalReport(BaseModel):
@@ -101,8 +101,11 @@ async def research_and_finalize(brief: str) -> FinalReport:
 
     Порядок стыка критичен (D-02/D-09):
       1. Зона 3 — evaluator-петля (детерминированный `while`, гарантия лимита в
-         КОДЕ). Возвращает ЛУЧШИЙ по score ReportData. Петля про финализатор НЕ
-         знает — evaluator_loop.py её не импортирует.
+         КОДЕ). Петля отдаёт прогресс потоком событий (D-13.2); дренер
+         `run_loop_to_report` сворачивает поток к ЛУЧШЕМУ по score ReportData
+         (терминал `final`) либо поднимает исключение при падении (терминал
+         `failed`, D-13.3). Петля про финализатор НЕ знает — evaluator_loop.py её
+         не импортирует.
       2. Строго ПОСЛЕ выхода из петли, ВНЕ цикла, ОДНОЙ точкой — единственный
          handoff проекта (D-09): прогон шлюза `finalizer_gateway`, который делает
          transfer на `finalizer_agent`. Готовый ReportData доходит до финализатора
@@ -112,6 +115,6 @@ async def research_and_finalize(brief: str) -> FinalReport:
 
     Возвращает FinalReport (оформленная выдача от финализатора).
     """
-    report = await research_with_evaluation(brief)
+    report = await run_loop_to_report(brief)
     result = await Runner.run(finalizer_gateway, report.model_dump_json())
     return result.final_output_as(FinalReport)
