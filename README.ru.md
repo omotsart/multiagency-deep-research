@@ -83,7 +83,8 @@ flowchart TD
 **Попробовать сейчас (без установки):** [Live Space на Hugging Face](https://huggingface.co/spaces/ovm26rus/multiagency-deep-research) 🤗
 
 
-<img width="2540" height="1198" alt="DeepresearchGif" src="https://github.com/user-attachments/assets/2c3a7956-6913-4439-82fd-b0c3a62040f5" />
+
+<img width="2540" height="1198" alt="DeepresearchGif" src="https://github.com/user-attachments/assets/edde04ee-bc1a-41f7-a78f-003d56501971" />
 
 **Запуск локально:**
 
