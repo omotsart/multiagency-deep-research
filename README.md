@@ -1,4 +1,4 @@
-﻿---
+---
 title: MultiAgency DeepResearch
 emoji: 🔬
 colorFrom: indigo
@@ -8,14 +8,15 @@ app_port: 7860
 app_file: app.py
 pinned: false
 ---
-# MultiAgency DeepResearch рџ”¬
 
-**English** | [Р СѓСЃСЃРєРёР№](README.ru.md)
+# MultiAgency DeepResearch 🔬
 
-> **Autonomous research agent:** Give it a topic в†’ it asks clarifying questions в†’ runs a bounded multi-agent web investigation в†’ writes a report and mathematically grades its own quality before the final handoff.
+**English** | [Русский](README.ru.md)
+
+> **Autonomous research agent:** Give it a topic → it asks clarifying questions → runs a bounded multi-agent web investigation → writes a report and mathematically grades its own quality before the final handoff.
 
 <div align="center">
-  <a href="https://huggingface.co/spaces/ovm26rus/multiagency-deep-research"><img src="https://img.shields.io/badge/рџ¤—%20Live%20Demo-Hugging%20Face%20Space-yellow" alt="Live Demo"></a>
+  <a href="https://huggingface.co/spaces/ovm26rus/multiagency-deep-research"><img src="https://img.shields.io/badge/🤗%20Live%20Demo-Hugging%20Face%20Space-yellow" alt="Live Demo"></a>
   <img src="https://img.shields.io/badge/Python-3.10+-blue" alt="Python">
   <img src="https://img.shields.io/badge/OpenAI-Agents%20SDK-412991" alt="OpenAI Agents SDK">
   <img src="https://img.shields.io/badge/Gradio-5.49.1-orange" alt="Gradio">
@@ -25,7 +26,7 @@ pinned: false
 <br>
 
 
-## рџ’Ў The Value Proposition
+## 💡 The Value Proposition
 
 Built for complex analytical tasks where single-prompt outputs fail. This system doesn't just generate text; it actively orchestrates a deterministic, auditable research pipeline.
 
@@ -36,7 +37,7 @@ Built for complex analytical tasks where single-prompt outputs fail. This system
 
 ---
 
-## рџЏ— Architecture & Orchestration
+## 🏗 Architecture & Orchestration
 
 This system demonstrates precise control over multi-agent orchestration using the **OpenAI Agents SDK**, focusing on deterministic workflows, tool calling, and safe handoffs.
 
@@ -57,7 +58,7 @@ flowchart TD
     subgraph workflow_loop [Agents-as-Tools Workflow]
         Manager
         Planner[Planner]
-        Search[Web Search Г—N]
+        Search[Web Search ×N]
         Writer[Writer]
         
         Manager <-->|Tool Call| Planner
@@ -82,13 +83,13 @@ flowchart TD
 
 * **Agents-as-Tools Pipeline:** The core loop is driven by a central `Manager` agent. Rather than allowing unpredictable agent-to-agent chatter, the Manager invokes the `Planner`, parallel `Web Search` nodes, and the `Writer` strictly as **tools**. Control consistently returns to the Manager, ensuring predictable execution and debuggability.
 * **Evaluator-Optimizer Workflow:** Quality control is deterministic. An `Evaluator` agent grades the draft (0-10). If the score falls below the threshold, a feedback loop sends it back for revision. This loop is strictly bounded by a maximum number of rounds to prevent infinite generation loops.
-* **The Single Handoff:** To guarantee process safety, control is transferred exactly once. Only when a report passes evaluation (or hits the iteration limit) does the system execute a **handoff** to the `Finalizer` agent. The Finalizer formats the output and explicitly terminates the processвЂ”nothing runs after this point.
+* **The Single Handoff:** To guarantee process safety, control is transferred exactly once. Only when a report passes evaluation (or hits the iteration limit) does the system execute a **handoff** to the `Finalizer` agent. The Finalizer formats the output and explicitly terminates the process—nothing runs after this point.
 
 ---
 
-## рџљЂ Quick Start
+## 🚀 Quick Start
 
-**Try it now вЂ” no install:** [Live Space on Hugging Face](https://huggingface.co/spaces/ovm26rus/multiagency-deep-research) рџ¤—
+**Try it now — no install:** [Live Space on Hugging Face](https://huggingface.co/spaces/ovm26rus/multiagency-deep-research) 🤗
 
 
 <img width="2540" height="1198" alt="DeepresearchGif" src="https://github.com/user-attachments/assets/d69dd88a-b9d4-4743-a494-e9cc56e899fc" />
@@ -112,7 +113,7 @@ The app runs as a **Docker Space** (`sdk: docker`, port 7860). When relying on `
 
 ---
 
-## рџ§Є Testing
+## 🧪 Testing
 
 ```bash
 pip install -r requirements-dev.txt
@@ -122,7 +123,7 @@ The test suite includes **54 tests** running entirely on LLM mocks. No real API 
 
 ---
 
-## рџ—є Roadmap
+## 🗺 Roadmap
 
 * [ ] **Privacy-First Local Execution:** Transitioning the evaluator and writer agents to local open-weight models (e.g., Qwen 2.5/3 series) to allow processing of highly sensitive, confidential data without relying on external APIs.
 * [ ] **Multi-Modal Document Processing:** Integrating OCR and document parsing capabilities to allow the system to ingest and analyze raw PDFs and legal frameworks natively.
@@ -130,11 +131,10 @@ The test suite includes **54 tests** running entirely on LLM mocks. No real API 
 
 ---
 
-## рџ‘ЁвЂЌрџ’» Engineering Philosophy
+## 👨‍💻 Engineering Philosophy
 
 *"Structuring data is no different from structuring an argument."*
 
-With 15 years of professional experience navigating complex regulatory and legal frameworks, I view software engineeringвЂ”especially AI orchestrationвЂ”through the lens of strict logic and predictability. Navigating dense legal codes requires analytical rigor, fact-checking, and clear paths of logic. I bring that exact same philosophy to AI development. 
+With 15 years of professional experience navigating complex regulatory and legal frameworks, I view software engineering—especially AI orchestration—through the lens of strict logic and predictability. Navigating dense legal codes requires analytical rigor, fact-checking, and clear paths of logic. I bring that exact same philosophy to AI development. 
 
 This project wasn't built to just "prompt an LLM." It was built to create a deterministic, reliable system that treats AI agents not as magic black boxes, but as modular tools within a highly structured, auditable pipeline.
-
