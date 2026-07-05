@@ -14,9 +14,6 @@
 
 <br>
 
-<!-- Убедись, что путь к GIF правильный, и раскомментируй эту строку -->
-![Демонстрация работы MultiAgency DeepResearch](assets/demo.gif)
-
 ## 💡 Ценность проекта (Value Proposition)
 
 Система спроектирована для сложных аналитических задач, где недостаточно генерации текста по одному промпту. Этот проект не просто "пишет текст" — он оркестрирует детерминированный и проверяемый исследовательский пайплайн.
@@ -89,7 +86,7 @@ flowchart TD
 **Запуск локально:**
 
 ```bash
-git clone [https://github.com/omotsart/multiagency-deep-research](https://github.com/omotsart/multiagency-deep-research)
+git clone https://github.com/omotsart/multiagency-deep-research
 cd multiagency-deep-research
 python -m venv .venv
 
