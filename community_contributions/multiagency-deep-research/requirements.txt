@@ -1,0 +1,17 @@
+# MultiAgency DeepResearch — deploy-зависимости (Hugging Face Spaces)
+# Жёсткие пины (==) — страховка от несовместимостей на Spaces, особенно UI.
+# Версии сверены с рабочим окружением. Dev/test-депы — в requirements-dev.txt
+# (на Spaces НЕ ставятся). Legacy email-демо (sendgrid) — тоже в requirements-dev.txt
+# (вне deploy-пути app.py, D-05).
+
+# OpenAI Agents SDK (импортируется как `agents`), требует Python 3.10+
+openai-agents==0.4.2
+
+# UI — жёсткий пин против "перекошенного" интерфейса на новых релизах
+gradio==5.49.1
+
+# Валидация структурированного вывода агентов
+pydantic==2.11.10
+
+# Загрузка .env локально (на Spaces переменные приходят из Secrets)
+python-dotenv==1.2.2

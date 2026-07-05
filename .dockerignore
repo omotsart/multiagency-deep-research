@@ -1,0 +1,23 @@
+# .dockerignore — тримминг build-контекста deploy-образа (лёгкий образ, D-16).
+# РАНТАЙМ СОХРАНЁН (НЕ исключается): app.py, src/, requirements.txt, README.md,
+# Dockerfile, acceptance_provocateur.py, .env.example. Dockerfile тянет только
+# requirements.txt (dev-депы не ставятся); app.py импортирует src/ + (лениво)
+# acceptance_provocateur.py — всё это остаётся в контексте.
+
+# Репо/процессные материалы, рантайму не нужны
+community_contributions/
+docs/
+handover/
+tests/
+.git/
+
+# Локальные окружения и секреты (в git не входят, но исключаем в контексте явно)
+.venv/
+.env
+.env.local
+
+# Python-кэши
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+.pytest_cache/

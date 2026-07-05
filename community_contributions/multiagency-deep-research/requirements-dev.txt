@@ -1,0 +1,11 @@
+# MultiAgency DeepResearch — dev/test-зависимости (НЕ ставятся на Spaces)
+# Установка локально:  pip install -r requirements.txt -r requirements-dev.txt
+# Тесты — на моках LLM, без реальных вызовов и без ключа (RULES §4).
+
+pytest==9.1.1
+pytest-asyncio==1.4.0
+
+# Legacy email-демо (src/email_agent.py) — ВНЕ deploy-пути app.py (D-05).
+# app.py его не импортирует; нужен только для локального прогона наследованного
+# research_manager/deep_research. Держим здесь, чтобы не тянуть на Spaces.
+sendgrid==6.12.5
