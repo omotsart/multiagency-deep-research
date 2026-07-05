@@ -14,8 +14,6 @@
 
 <br>
 
-<!-- Убедись, что путь к GIF правильный, и раскомментируй эту строку -->
-![MultiAgency DeepResearch demo](assets/demo.gif)
 
 ## 💡 The Value Proposition
 
@@ -88,7 +86,7 @@ flowchart TD
 **Run locally:**
 
 ```bash
-git clone [https://github.com/omotsart/multiagency-deep-research](https://github.com/omotsart/multiagency-deep-research)
+git clone https://github.com/omotsart/multiagency-deep-research
 cd multiagency-deep-research
 python -m venv .venv
 
