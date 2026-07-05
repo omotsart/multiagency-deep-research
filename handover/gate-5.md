@@ -379,7 +379,7 @@ Git-bash/Linux: `MAD_FORCE_TERMINAL=limit python app.py`
 
 **DEFERRED, заходящие в Gate 6 (подтверждаю явно, состояние на закрытии Gate 5):**
 - **#1** — сверить пины dev-зависимостей (pytest 9.1.1 vs requirements). Привязан к Gate 6. Открыт.
-- **#5** — вычистить PII (`o,motsart@mail.ru` в теле `handover/gate-0.md`) из истории git
+- **#5** — вычистить PII (личный email `[email отредактирован]` в теле `handover/gate-0.md`) из истории git
   ИЛИ осознанно принять публично — ДО открытия публичности Space. Привязан к Gate 6. Открыт.
 - **#9** — зазор среды Windows→Spaces (`.queue()`/SSE-стриминг генераторов, пути, env,
   `inbrowser`): проверить живость лога на настоящем Space. Привязан к Gate 6. Открыт.
