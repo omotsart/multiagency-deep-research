@@ -3,8 +3,8 @@ title: MultiAgency DeepResearch
 emoji: 🔬
 colorFrom: indigo
 colorTo: gray
-sdk: gradio
-sdk_version: 5.49.1
+sdk: docker
+app_port: 7860
 app_file: app.py
 pinned: false
 ---
@@ -71,10 +71,14 @@ python app.py
 
 ## Деплой (Hugging Face Spaces)
 
-Приложение разворачивается как Gradio-Space. Конфигурация — в YAML-хедере этого
-README (`sdk: gradio`, `app_file: app.py`, `sdk_version: 5.49.1`). Версия
-`sdk_version` совпадает с пином `gradio==5.49.1` в `requirements.txt` символ в
-символ — рантайм Space и pip-пин не должны расходиться.
+Приложение разворачивается как **Docker-Space** (`sdk: docker`, `app_port: 7860`;
+D-16). Docker — сознательный выбор: при `sdk: gradio` HF впрыскивает
+`gradio[oauth,mcp]`, чей extra `mcp` пинит `mcp==1.10.1` и конфликтует с
+`openai-agents==0.4.2` (требует `mcp>=1.11.0`). MCP/OAuth проект не использует, поэтому
+`Dockerfile` ставит **голый** `gradio==5.49.1` из `requirements.txt` — `mcp` тянет
+только `openai-agents`. Оба жёстких пина сохранены, версии не менялись. `Dockerfile`
+задаёт `GRADIO_SERVER_NAME=0.0.0.0` и `GRADIO_SERVER_PORT=7860` через окружение —
+`app.py` не меняется, точка входа прежняя.
 
 **Секреты — только через настройки Space, не в коде (RULES §5).**
 `OPENAI_API_KEY` заводится как **Secret** в настройках Space (Settings → Variables
